@@ -51,9 +51,42 @@ struct FPExceptions {
   static constexpr auto kUnderflow = FE_UNDERFLOW;
 };
 
+/**
+ * @brief RAII floating-point precision control class
+ *
+ * The Precise class provides automatic management of floating-point environment
+ * settings during its lifetime. It uses RAII principles to save the current
+ * floating-point state on construction and restore it on destruction.
+ *
+ * The class is configured using variadic template arguments that specify
+ * the desired floating-point behavior through tag types.
+ *
+ * **IMPORTANT PERFORMANCE NOTE**: Create the Precise object BEFORE loops,
+ * not inside them. The constructor and destructor have overhead from saving
+ * and restoring floating-point state, so it should be done once per
+ * computational scope, not per iteration.
+ *
+ * @tparam Args Variadic template arguments for configuration flags
+ *
+ * @example
+ * ```cpp
+ * using namespace hwy::HWY_NAMESPACE;
+ * using namespace npsr;
+ * using namespace npsr::HWY_NAMESPACE;
+ *
+ * Precise precise = {kLowAccuracy, kNoSpecialCases, kNoLargeArgument};
+ * const ScalableTag<float> d;
+ * typename V = Vec<DFromV<SclableTag>>;
+ * for (size_t i = 0; i < n; i += Lanes(d)) {
+ *     V input = LoadU(d, &input[i]);
+ *     V result = Sin(precise, input);
+ *     StoreU(result, d, &output[i]);
+ * }
+ * ```
+ */
 template <typename... Args> class Precise {
 public:
-  Precise() {
+  Precise(Args...) {
     if constexpr (!kNoExceptions) {
       fegetexceptflag(&_exceptions, FE_ALL_EXCEPT);
     }
