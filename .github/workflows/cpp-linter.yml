@@ -1,0 +1,25 @@
+name: cpp-linter
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "npsr/*"
+
+jobs:
+  cpp-linter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: cpp-linter/cpp-linter-action@f91c446a32ae3eb9f98fef8c9ed4c7cb613a4f8a
+        id: linter
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          style: "file"
+
+      - name: Linter Outputs
+        if: steps.linter.outputs.checks-failed != 0
+        run: exit 1
