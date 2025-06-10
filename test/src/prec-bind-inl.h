@@ -15,8 +15,6 @@ namespace npsr::HWY_NAMESPACE::test {
 template <typename TPrecise, typename... TVec>
 HWY_ATTR bool PreciseBind(PyObject *m) {
   bool r = true;
-  r &= AttachIntrinsic<Sin<TPrecise, TVec>...>(m, "Sin");
-  r &= AttachIntrinsic<Cos<TPrecise, TVec>...>(m, "Cos");
   return r;
 }
 
