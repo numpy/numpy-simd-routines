@@ -1,8 +1,8 @@
 #include "npsr/common.h"
-#include "npsr/trig/lut-inl.h"
+#include "npsr/trig/data/small.h"
 #include "npsr/utils-inl.h"
 
-#if defined(NPSR_TRIG_SMALL_INL_H_) == defined(HWY_TARGET_TOGGLE) // NOLINT
+#if defined(NPSR_TRIG_SMALL_INL_H_) == defined(HWY_TARGET_TOGGLE)  // NOLINT
 #ifdef NPSR_TRIG_SMALL_INL_H_
 #undef NPSR_TRIG_SMALL_INL_H_
 #else
@@ -67,25 +67,22 @@ HWY_API V SmallPolyLow(V r, V r2) {
   poly = MulAdd(r2, poly, c7);
   poly = MulAdd(r2, poly, c5);
   poly = MulAdd(r2, poly, c3);
-  V r3 = Mul(r2, r);
-  poly = MulAdd(r3, poly, r);
   return poly;
 }
 
-template <bool IS_COS, typename V> HWY_API V SmallArgLow(V x) {
+template <bool IS_COS, typename V>
+HWY_API V SmallArgLow(V x) {
   const DFromV<V> d;
   const RebindToUnsigned<decltype(d)> du;
-  using U = VFromD<decltype(du)>;
   using T = TFromV<V>;
   // Load frequently used constants as vector registers
   const V abs_mask = BitCast(d, Set(du, SignMask<T>() - 1));
   const V x_abs = And(abs_mask, x);
-  const V x_sign = AndNot(abs_mask, x);
+  const V x_sign = AndNot(x_abs, x);
 
-  constexpr bool IsSingle = std::is_same_v<T, float>;
-
+  constexpr bool kIsSingle = std::is_same_v<T, float>;
   // Transform cosine to sine using identity: cos(x) = sin(x + π/2)
-  const V half_pi = Set(d, 0x1.921fb6p0f);
+  const V half_pi = Set(d, kIsSingle ? 0x1.921fb6p0f : 0x1.921fb54442d18p0);
   V x_trans = x_abs;
   if constexpr (IS_COS) {
     x_trans = Add(x_abs, half_pi);
@@ -95,11 +92,10 @@ template <bool IS_COS, typename V> HWY_API V SmallArgLow(V x) {
 
   // Compute N = round(x/π) using "magic number" technique
   // and stores integer part in mantissa
-  const V inv_pi = Set(d, IsSingle ? 0x1.45f306p-2f : 0x1.45f306dc9c883p-2);
-  const V magic_round = Set(d, IsSingle ? 0x1.8p23f : 0x1.8p52);
+  const V inv_pi = Set(d, kIsSingle ? 0x1.45f306p-2f : 0x1.45f306dc9c883p-2);
+  const V magic_round = Set(d, kIsSingle ? 0x1.8p23f : 0x1.8p52);
   V n_biased = MulAdd(x_trans, inv_pi, magic_round);
   V n = Sub(n_biased, magic_round);
-
   // Adjust quotient for cosine (accounts for π/2 phase shift)
   if constexpr (IS_COS) {
     // For cosine, we computed N = round((x + π/2)/π) but need N' for x:
@@ -109,20 +105,25 @@ template <bool IS_COS, typename V> HWY_API V SmallArgLow(V x) {
     n = Sub(n, Set(d, static_cast<T>(0.5)));
   }
   // Use Cody-Waite method with triple-precision PI
-  const V pi_hi = Set(d, IsSingle ? 0x1.921fb6p1f : 0x1.921fb54442d18p+1);
-  const V pi_med = Set(d, -0x1.777a5cp-24f);
-  const V pi_lo = Set(d, IsSingle ? -0x1.ee59dap-49f : 0x1.1a62633145c06p-53);
-  V r = NegMulAdd(n, pi_hi, x_abs); // x - N*π_hi
-  if constexpr (IsSingle) {
-    r = NegMulAdd(n, pi_med, r); // - N*π_medium
+  const V pi_hi = Set(d, kIsSingle ? 0x1.921fb6p1f : 0x1.921fb54442d18p+1);
+  const V pi_med =
+      Set(d, kIsSingle ? -0x1.777a5cp-24f : 0x1.c1cd129024e09p-106);
+  const V pi_lo = Set(d, kIsSingle ? -0x1.ee59dap-49f : 0x1.1a62633145c06p-53);
+  V r = NegMulAdd(n, pi_hi, x_abs);
+  if constexpr (kIsSingle) {
+    r = NegMulAdd(n, pi_med, r);
   }
-  r = NegMulAdd(n, pi_lo, r); // - N*π_low
+  r = NegMulAdd(n, pi_lo, r);
   V r2 = Mul(r, r);
-  // Extract octant sign information from quotient
-  // to determines sign flip in final result
-  r = Xor(r, BitCast(d, ShiftLeft<sizeof(T) * 8 - 1>(BitCast(du, n_biased))));
-
   V poly = SmallPolyLow<IS_COS>(r, r2);
+  if constexpr (!kIsSingle) {
+    V r_mid = NegMulAdd(n, pi_med, r);
+    V r2_corr = Mul(r2, r_mid);
+    poly = MulAdd(r2_corr, poly, r_mid);
+  }
+  // Extract octant sign information from quotient and flip the sign bit
+  poly = Xor(poly,
+             BitCast(d, ShiftLeft<sizeof(T) * 8 - 1>(BitCast(du, n_biased))));
   if constexpr (IS_COS) {
     poly = IfThenElse(is_cos_near_zero, Set(d, static_cast<T>(1.0)), poly);
   } else {
@@ -139,18 +140,16 @@ HWY_INLINE V SmallArg(V x) {
   using DU = RebindToUnsigned<D>;
   using DH = Half<D>;
   using DW = RepartitionToWide<D>;
-  using VU = Vec<DU>;
   using VW = Vec<DW>;
 
   const D d;
   const DU du;
   const DH dh;
   const DW dw;
-
   // Load frequently used constants as vector registers
   const V abs_mask = BitCast(d, Set(du, 0x7FFFFFFF));
   const V x_abs = And(abs_mask, x);
-  const V x_sign = AndNot(abs_mask, x);
+  const V x_sign = AndNot(x_abs, x);
 
   // Transform cosine to sine using identity: cos(x) = sin(x + π/2)
   const V half_pi = Set(d, 0x1.921fb6p0f);
@@ -236,6 +235,10 @@ HWY_INLINE V SmallArg(V x) {
  */
 template <bool IS_COS, typename V, HWY_IF_F64(TFromV<V>)>
 HWY_INLINE V SmallArg(V x) {
+  using trig::data::kHiCosKPi16Table;
+  using trig::data::kHiSinKPi16Table;
+  using trig::data::kPackedLowSinCosKPi16Table;
+
   using T = TFromV<V>;
   using D = DFromV<V>;
   using DU = RebindToUnsigned<D>;
@@ -245,11 +248,10 @@ HWY_INLINE V SmallArg(V x) {
   const DU du;
 
   // Constants for range reduction
-  constexpr T kInvPi = 0x1.45f306dc9c883p2;      // 16/π for range reduction
-  constexpr T kPi16High = 0x1.921fb54442d18p-3;  // π/16 high precision part
-  constexpr T kPi16Low = 0x1.1a62633p-57;        // π/16 low precision part
-  constexpr T kPi16Tiny = 0x1.45c06e0e68948p-89; // π/16 tiny precision part
-
+  constexpr T kInvPi = 0x1.45f306dc9c883p2;       // 16/π for range reduction
+  constexpr T kPi16High = 0x1.921fb54442d18p-3;   // π/16 high precision part
+  constexpr T kPi16Low = 0x1.1a62633p-57;         // π/16 low precision part
+  constexpr T kPi16Tiny = 0x1.45c06e0e68948p-89;  // π/16 tiny precision part
   // Step 1: Range reduction - find n such that x = n*(π/16) + r, where |r| <
   // π/16
   V magic = Set(d, 0x1.8p52);
@@ -258,21 +260,26 @@ HWY_INLINE V SmallArg(V x) {
 
   // Extract integer index for table lookup (n mod 16)
   VU n_int = BitCast(du, n_biased);
+  VU table_idx = And(n_int, Set(du, 0xF));  // Mask to get n mod 16
 
   // Step 2: Load precomputed sine/cosine values for n mod 16
-  V sin_hi = LutX2(kHiSinKPi16Table<double>, n_int);
-  V cos_hi = LutX2(kHiCosKPi16Table<double>, n_int);
-  V cos_lo = LutX2(kPackedLowSinCosKPi16Table<double>, n_int);
+  V sin_hi = LutX2(kHiSinKPi16Table, table_idx);
+  V cos_hi = LutX2(kHiCosKPi16Table, table_idx);
+  // Note: cos_lo and sin_lo are packed together (32 bits each) to save memory.
+  // cos_lo can be used as-is since it's in the upper bits, sin_lo needs
+  // extraction. The precision loss is negligible for the final result.
+  // see lut-inl.h.py for the table generation code.
+  V cos_lo = LutX2(kPackedLowSinCosKPi16Table, table_idx);
+  // Extract sin_low from packed format (upper 32 bits)
+  V sin_lo = BitCast(d, ShiftLeft<32>(BitCast(du, cos_lo)));
 
   // Step 3: Multi-precision computation of remainder r
-  V r_hi = NegMulAdd(n, Set(d, kPi16High), x);    // r = x - n*(π/16)_high
-  V r_mid = NegMulAdd(n, Set(d, kPi16Low), r_hi); // Subtract low part
-  V r = NegMulAdd(n, Set(d, kPi16Tiny), r_mid);   // Subtract tiny part
-
+  V r_hi = NegMulAdd(n, Set(d, kPi16High), x);     // r = x - n*(π/16)_high
+  V r_mid = NegMulAdd(n, Set(d, kPi16Low), r_hi);  // Subtract low part
+  V r = NegMulAdd(n, Set(d, kPi16Tiny), r_mid);    // Subtract tiny part
   // Compute low precision part of r for extra accuracy
-  V delta = Sub(r, r_mid);
-  V term = NegMulAdd(Set(d, kPi16Low), n, Sub(r_hi, delta));
-  V r_lo = MulAdd(Set(d, kPi16Tiny), n, delta);
+  V term = NegMulAdd(Set(d, kPi16Low), n, Sub(r_hi, r_mid));
+  V r_lo = MulAdd(Set(d, kPi16Tiny), n, Sub(r, r_mid));
   r_lo = Sub(term, r_lo);
 
   // Step 4: Polynomial approximation
@@ -295,58 +302,117 @@ HWY_INLINE V SmallArg(V x) {
   cos_poly = MulAdd(cos_poly, r2, Set(d, -0x1.ffffffffffffcp-2));
 
   // Step 5: Reconstruction using angle addition formulas
-  // sin(n*π/16 + r) = sin(n*π/16)*cos(r) + cos(n*π/16)*sin(r)
-  // cos(n*π/16 + r) = cos(n*π/16)*cos(r) - sin(n*π/16)*sin(r)
   //
-  // Where:
-  // sin(r) = r * (1 + sin_poly)
-  // cos(r) = 1 + r² * cos_poly
-
-  // Apply angle addition with multi-precision arithmetic
-  // Main term: sin(n*π/16) + r*cos(n*π/16)
-  V res_hi = MulAdd(r, cos_hi, sin_hi);
-
-  // Compute error from r*cos_hi multiplication
-  V r_cos = Sub(res_hi, sin_hi);
-  V mul_err = MulSub(r, cos_hi, r_cos);
-
-  // Compute cos(n*π/16) - r*sin(n*π/16) for intermediate calculations
-  V cos_r_sin = NegMulAdd(r, sin_hi, cos_hi);
-
-  // Extract sin_low from packed format (upper 32 bits)
-  V sin_lo = BitCast(d, ShiftLeft<32>(BitCast(du, cos_lo)));
-  V lo_corr = MulAdd(r_lo, cos_r_sin, sin_lo);
-
-  // Apply polynomial corrections
-  V r_cos_hi = Mul(cos_hi, r);
-  V sin_corr = Mul(sin_hi, cos_poly); // sin(n*π/16) * (cos(r)-1)/r²
-
-  // Extract cos_low from packed format (lower 32 bits used directly)
-  V cos_corr = MulAdd(r, cos_lo, mul_err);
-  V total_corr = Add(cos_corr, lo_corr);
-
-  // Combine all terms: sin(n*π/16 + r) ≈ sin(n*π/16) + r*cos(n*π/16) +
-  // corrections
-  V result = MulAdd(r_cos_hi, sin_poly, sin_corr);
-  result = MulAdd(r2, result, total_corr);
-  result = Add(res_hi, result);
-
-  // Handle sign for negative zero edge case
+  // Mathematical equivalence between traditional and SVML approaches:
+  //
+  // Traditional angle addition:
+  // sin(a+r) = sin(a)*cos(r) + cos(a)*sin(r)
+  // cos(a+r) = cos(a)*cos(r) - sin(a)*sin(r)
+  //
+  // Where for small r (|r| < π/16):
+  // cos(r) ≈ 1 + r²*cos_poly
+  // sin(r) ≈ r*(1 + sin_poly) ≈ r + r*sin_poly
+  //
+  // SVML's efficient linear approximation:
+  // sin(a+r) ≈ sin(a) + cos(a)*r + polynomial_corrections
+  // cos(a+r) ≈ cos(a) - sin(a)*r + polynomial_corrections
+  //
+  // This is mathematically equivalent but computationally more efficient:
+  // - Uses first-order linear terms directly: Sh + Ch*R, Ch - R*Sh
+  // - Applies higher-order polynomial corrections separately
+  // - Fewer multiplications and better numerical stability
+  //
+  // Implementation follows SVML structure:
+  // sin(n*π/16 + r) = sin_table + cos_table*remainder (+ corrections)
+  // cos(n*π/16 + r) = cos_table - sin_table*remainder (+ corrections)
+  V result;
   if constexpr (IS_COS) {
-    // For cosine, we need to adjust the phase by π/2
-    // This would require additional logic not shown in the original
-    // TODO: Implement cosine-specific adjustments
+    // Cosine reconstruction: cos_table - sin_table*remainder
+    // Equivalent to: cos(a)*cos(r) - sin(a)*sin(r) but more efficient
+    V res_hi = NegMulAdd(r, sin_hi, cos_hi);  // cos_hi - r*sin_hi
+
+    // This captures the precision lost in the main computation
+    V r_sin_hi = Sub(cos_hi, res_hi);  // Extract high part of multiplication
+
+    // Handles rounding errors and adds sin_low contribution
+    V r_sin_low = MulSub(r, sin_hi, r_sin_hi);  // Compute multiplication error
+    V sin_low_corr = MulAdd(r, sin_lo, r_sin_low);  // Add sin_low term
+
+    // This is used to apply the low-precision remainder correction
+    V sin_cos_r = MulAdd(r, cos_hi, sin_hi);
+
+    // Main low precision correction: cos_low - r_low*(sin_table + cos_table*r)
+    // Applies the effect of the low-precision remainder on the final result
+    V low_corr = NegMulAdd(r_lo, sin_cos_r, cos_lo);
+
+    // Polynomial corrections using the remainder
+    V r_sin = Mul(r, sin_hi);  // For polynomial application
+
+    // Apply polynomial corrections: cos_table*cos_poly - r*sin_table*sin_poly
+    // This handles the higher-order terms from cos(r) and sin(r) expansions
+    V poly_corr = Mul(cos_hi, cos_poly);  // cos(a) * (cos(r)-1)/r²
+    // - sin(a)*r * (sin(r)/r-1)
+    poly_corr = NegMulAdd(r_sin, sin_poly, poly_corr);
+
+    // Combine all low precision corrections
+    V total_low = Sub(low_corr, sin_low_corr);
+
+    // Final assembly: main_term + r²*polynomial_corrections + low_corrections
+    result = MulAdd(r2, poly_corr, total_low);
+    result = Add(res_hi, result);
+
+  } else {
+    // Sine reconstruction: sin_table + cos_table*remainder
+    // Equivalent to: sin(a)*cos(r) + cos(a)*sin(r) but more efficient
+    V res_hi = MulAdd(r, cos_hi, sin_hi);  // sin_hi + r*cos_hi
+
+    // This captures the precision lost in the main computation
+    V r_cos_hi = Sub(res_hi, sin_hi);  // Extract high part of multiplication
+
+    // Handles rounding errors and adds cos_low contribution
+    V r_cos_low = MulSub(r, cos_hi, r_cos_hi);  // Compute multiplication error
+    V cos_low_corr = MulAdd(r, cos_lo, r_cos_low);  // Add cos_low term
+
+    // Intermediate term for r_low correction: cos_table - sin_table*r
+    // This is used to apply the low-precision remainder correction
+    V cos_r_sin = NegMulAdd(r, sin_hi, cos_hi);
+
+    // Main low precision correction: sin_low - r_low*(cos_table - sin_table*r)
+    // Applies the effect of the low-precision remainder on the final result
+    V low_corr = MulAdd(r_lo, cos_r_sin, sin_lo);
+    // Polynomial corrections using the remainder
+    V r_cos = Mul(r, cos_hi);  // For polynomial application
+
+    // Apply polynomial corrections: sin_table*cos_poly + r*cos_table*sin_poly
+    // This handles the higher-order terms from cos(r) and sin(r) expansions
+    V poly_corr = Mul(sin_hi, cos_poly);  // sin(a) * (cos(r)-1)/r²
+    poly_corr =
+        MulAdd(r_cos, sin_poly, poly_corr);  // + cos(a)*r * (sin(r)/r-1)
+
+    // Combine all low precision corrections
+    V total_low = Add(low_corr, cos_low_corr);
+    // Final assembly: main_term + r²*polynomial_corrections + low_corrections
+    result = MulAdd(r2, poly_corr, total_low);
+    result = Add(res_hi, result);
   }
 
-  // Apply final sign correction based on quadrant
-  VU sign_bits = ShiftRight<4>(n_int);
-  sign_bits = ShiftLeft<63>(sign_bits);
-  result = Xor(result, BitCast(d, sign_bits));
+  // Apply final sign correction same for both sine and cosine
+  // Both functions change sign every π radians, corresponding to bit 4 of n_int
+  // This unified approach works because:
+  // - sin(x + π) = -sin(x)
+  // - cos(x + π) = -cos(x)
+  VU x_sign_int = ShiftLeft<63>(BitCast(du, x));
+  // XOR with quadrant info in n_biased
+  VU combined = Xor(BitCast(du, n_biased), ShiftLeft<4>(x_sign_int));
+  // Extract final sign
+  VU sign = ShiftRight<4>(combined);
+  sign = ShiftLeft<63>(sign);
+  result = Xor(result, BitCast(d, sign));  // Apply sign flip
   return result;
 }
 // NOLINTNEXTLINE(google-readability-namespace-comments)
-} // namespace npsr::HWY_NAMESPACE::sincos
+}  // namespace npsr::HWY_NAMESPACE::sincos
 
 HWY_AFTER_NAMESPACE();
 
-#endif // NPSR_TRIG_SMALL_INL_H_
+#endif  // NPSR_TRIG_SMALL_INL_H_
