@@ -1,0 +1,164 @@
+// procedure trig_func(input) {
+//     return printsingle(sin(input));
+// };
+
+large_args = [||];
+
+// 1. Systematic multiples of pi with perturbations
+for k from 100 to 100000 by 100 do {
+    base = pi * k;
+    large_args = large_args @ [|base|];
+    large_args = large_args @ [|base + 1e-15|];
+    large_args = large_args @ [|base - 1e-15|];
+    large_args = large_args @ [|base + 1e-12|];
+    large_args = large_args @ [|base - 1e-12|];
+};
+        
+// 2. Systematic multiples of pi/2 with perturbations  
+for k from 100 to 100000 by 137 do {
+    base = pi/2 * k;
+    large_args = large_args @ [|base|];
+    large_args = large_args @ [|base + 1e-15|];
+    large_args = large_args @ [|base - 1e-15|];
+    large_args = large_args @ [|base + 1e-14|];
+    large_args = large_args @ [|base - 1e-14|];
+};
+        
+// 3. Powers of 2 and nearby values (floating point boundaries)
+for e from 10 to 50 do {
+    base = 2^e;
+    large_args = large_args @ [|base|];
+    large_args = large_args @ [|base + 1|];
+    large_args = large_args @ [|base - 1|];
+    large_args = large_args @ [|base + 0.5|];
+    large_args = large_args @ [|base - 0.5|];
+};
+        
+// 4. Powers of 10 ranges
+for e from 3 to 18 do {
+    base = 10^e;
+    large_args = large_args @ [|base|];
+    large_args = large_args @ [|base * 1.1|];
+    large_args = large_args @ [|base * 0.9|];
+    large_args = large_args @ [|base + 1|];
+    large_args = large_args @ [|base - 1|];
+};
+        
+// 5. Fibonacci-like sequences (often problematic for range reduction)
+fib_scale = [|1, 1|];  // Reset
+for i from 2 to 20 do {  
+    next_fib = fib_scale[i-1] + fib_scale[i-2];
+    fib_scale = fib_scale @ [|next_fib|];
+    large_args = large_args @ [|next_fib * 1000|];
+    large_args = large_args @ [|next_fib * 10000|];
+    
+};
+        
+// 6. Prime number scales (irregular patterns)
+primes = [|101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179,
+          181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269,
+          271, 277, 281, 283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367|];
+for i from 0 to length(primes) - 1 do {
+    p = primes[i];
+    large_args = large_args @ [|p * 1000|];
+    large_args = large_args @ [|p * 10000|]; 
+    large_args = large_args @ [|p * 100000|];
+    large_args = large_args @ [|p * pi|];
+    large_args = large_args @ [|p * pi/2|];
+};
+        
+// 7. Arguments near IEEE 754 double precision limits  
+large_args = large_args @ [|1.7976931348623157e+308 / 2|]; // Near max double / 2
+large_args = large_args @ [|1e308|];
+large_args = large_args @ [|1e307|];
+large_args = large_args @ [|1e306|];
+        
+// 8. Machine epsilon scaled values (precision boundaries)
+eps = 2.220446049250313e-16; // double precision machine epsilon
+for scale from 12 to 20 do {
+    base = 2^scale;
+    large_args = large_args @ [|base + eps * base|];
+    large_args = large_args @ [|base - eps * base|];
+    large_args = large_args @ [|base + eps * base * 2|];
+    large_args = large_args @ [|base - eps * base * 2|];
+};
+        
+// 9. Transcendental number multiples
+large_args = large_args @ [|exp(1) * 1e6|];    // e * 1M
+large_args = large_args @ [|exp(1) * 1e7|];    // e * 10M  
+large_args = large_args @ [|exp(1) * 1e8|];    // e * 100M
+large_args = large_args @ [|sqrt(2) * 1e6|];   // sqrt(2) * 1M
+large_args = large_args @ [|sqrt(2) * 1e7|];   // sqrt(2) * 10M
+large_args = large_args @ [|log(2) * 1e8|];    // ln(2) * 100M
+large_args = large_args @ [|log(10) * 1e7|];   // ln(10) * 10M
+        
+// 10. Arguments designed to stress specific range reduction algorithms
+// Cody-Waite constants and their problematic neighbors
+cody_waite_pi_hi = 3.1415926218032837;
+cody_waite_pi_lo = 3.1786509424591227e-08;
+for scale from 1000 to 1000000 by 1000 do {
+    large_args = large_args @ [|cody_waite_pi_hi * scale|];
+    large_args = large_args @ [|cody_waite_pi_lo * scale * 1e8|];
+};
+        
+// 11. Payne-Hanek problematic arguments
+// Arguments where naive range reduction fails
+large_args = large_args @ [|0x1.921fb54442d18p+0 * 1e6|];  // pi with specific bit pattern
+large_args = large_args @ [|0x1.921fb54442d19p+0 * 1e6|];  // pi + 1 ulp
+large_args = large_args @ [|0x1.921fb54442d17p+0 * 1e6|];  // pi - 1 ulp
+        
+// 12. Random large values in different ranges
+for e from 6 to 17 do {
+    base = 10^e;
+    // Add some pseudo-random values in each range
+    large_args = large_args @ [|base * 0.123456789|];
+    large_args = large_args @ [|base * 0.987654321|];  
+    large_args = large_args @ [|base * 0.314159265|];
+    large_args = large_args @ [|base * 0.271828182|];
+    large_args = large_args @ [|base * 0.577215664|]; // Euler-Mascheroni constant
+    large_args = large_args @ [|base * 0.866025403|]; // sqrt(3)/2
+    large_args = large_args @ [|base * 0.707106781|]; // sqrt(2)/2
+};
+        
+// 13. Negative versions of all critical ranges
+neg_critical = [||];
+for i from 0 to min(500, length(large_args) - 1) do {
+    neg_critical = neg_critical @ [|-large_args[i]|];
+};
+large_args = large_args @ neg_critical;
+        
+// 14. Arguments that expose specific algorithmic weaknesses
+// Values near 2^52 (where double precision integer representation changes)
+large_args = large_args @ [|4503599627370496.0|];     // 2^52
+large_args = large_args @ [|4503599627370497.0|];     // 2^52 + 1  
+large_args = large_args @ [|4503599627370495.0|];     // 2^52 - 1
+large_args = large_args @ [|9007199254740992.0|];     // 2^53
+large_args = large_args @ [|9007199254740991.0|];     // 2^53 - 1
+        
+// 15. Additional stress test values
+stress_values = [| 
+    // Mathematical constants scaled up
+    pi * 1e15, exp(1) * 1e15, sqrt(2) * 1e15,
+    
+    // Values that have caused issues in other implementations  
+    6.2831853071795864769, // 2*pi with specific precision
+    12.566370614359172954, // 4*pi
+    25.132741228718345908, // 8*pi
+    
+    // Large odd multiples of pi/4
+    pi/4 * 999999, pi/4 * 9999999,
+    
+    // Values near overflow in intermediate calculations
+    1e154, 1e155, 1e156,
+    
+    // Challenging values for specific processor architectures
+    0x1.fffffffffffffp+1023, // Near max normal double
+    0x1.fffffffffffffp+1022
+|];
+        
+large_args = large_args @ stress_values;
+num_cases = length(large_args) - 1;
+for i from 0 to num_cases do {
+  arg = large_args[i];
+  trig_func(arg);
+};
