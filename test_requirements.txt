@@ -1,0 +1,6 @@
+meson
+meson-python>=0.13.1
+ninja
+spin==0.13
+pytest
+
