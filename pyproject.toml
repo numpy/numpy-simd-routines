@@ -1,0 +1,58 @@
+[build-system]
+build-backend = "mesonpy"
+requires = [
+    "meson-python>=0.15.0",
+]
+
+[project]
+name = "numpy-simd-routines-test"
+version = "1.0.0.dev0"
+# TODO: add `license-files` once PEP 639 is accepted (see meson-python#88)
+license = {file = "LICENSE.txt"}
+
+description = "Fundamental package for array computing in Python"
+authors = [{name = "NumPy Developers."}]
+maintainers = [
+    {name = "NumPy Developers", email="numpy-discussion@python.org"},
+]
+requires-python = ">=3.11"
+readme = "README.md"
+classifiers = [
+    'Intended Audience :: Science/Research',
+]
+
+[project.urls]
+homepage = "https://numpy.org"
+documentation = "https://numpy.org/doc/"
+source = "https://github.com/numpy/numpy"
+download = "https://pypi.org/project/numpy/#files"
+tracker = "https://github.com/numpy/numpy/issues"
+"release notes" = "https://numpy.org/doc/stable/release"
+
+#[tool.meson-python.args]
+#install = ['--tags=runtime,python-runtime,tests,devel']
+
+[tool.spin]
+package = 'numpy_sr'
+
+[tool.spin.commands]
+"Build" = [
+  ".spin/cmds.py:test",
+  ".spin/cmds.py:build",
+  ".spin/cmds.py:generate",
+]
+"Environments" = [
+  "spin.cmds.meson.run",
+  ".spin/cmds.py:ipython",
+  ".spin/cmds.py:python",
+  "spin.cmds.meson.gdb",
+  "spin.cmds.meson.lldb"
+]
+# "Documentation" = [
+#   ".spin/cmds.py:docs",
+#   ".spin/cmds.py:changelog",
+#   ".spin/cmds.py:notes",
+#   ".spin/cmds.py:check_docs",
+#   ".spin/cmds.py:check_tutorials",
+# ]
+# "Metrics" = [".spin/cmds.py:bench"]
