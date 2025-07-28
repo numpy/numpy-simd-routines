@@ -1,3 +1,0 @@
-[submodule "test/highway"]
-	path = test/highway
-	url = https://github.com/google/highway

@@ -3,8 +3,6 @@
 #include <cfenv>
 #include <type_traits>
 
-#include "hwy/highway.h"
-
 namespace npsr {
 
 struct _NoLargeArgument {};
