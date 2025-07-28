@@ -37,22 +37,5 @@ package = 'numpy_sr'
 
 [tool.spin.commands]
 "Build" = [
-  ".spin/cmds.py:test",
-  ".spin/cmds.py:build",
   ".spin/cmds.py:generate",
 ]
-"Environments" = [
-  "spin.cmds.meson.run",
-  ".spin/cmds.py:ipython",
-  ".spin/cmds.py:python",
-  "spin.cmds.meson.gdb",
-  "spin.cmds.meson.lldb"
-]
-# "Documentation" = [
-#   ".spin/cmds.py:docs",
-#   ".spin/cmds.py:changelog",
-#   ".spin/cmds.py:notes",
-#   ".spin/cmds.py:check_docs",
-#   ".spin/cmds.py:check_tutorials",
-# ]
-# "Metrics" = [".spin/cmds.py:bench"]

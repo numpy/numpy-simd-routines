@@ -11,11 +11,10 @@
 HWY_BEFORE_NAMESPACE();
 
 namespace npsr::HWY_NAMESPACE {
-using namespace hwy;
-using namespace hwy::HWY_NAMESPACE;
 
-template <typename T, typename VU, typename D = Rebind<T, DFromV<VU>>, typename V = Vec<D>>
+template <typename T, typename VU, typename D = Rebind<T, DFromV<VU>>, typename V = VFromD<D>>
 HWY_API V LutX2(const T *lut, VU idx) {
+  using namespace hn;
   D d;
   return GatherIndex(d, lut, BitCast(RebindToSigned<D>(), idx));
 #if 0

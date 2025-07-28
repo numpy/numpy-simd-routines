@@ -1,6 +1,7 @@
 #include "npsr/common.h"
-#include "npsr/trig/large-inl.h"
-#include "npsr/trig/small-inl.h"
+#include "npsr/trig/extended-inl.h"
+#include "npsr/trig/high-inl.h"
+#include "npsr/trig/low-inl.h"
 
 #if defined(NPSR_TRIG_INL_H_) == defined(HWY_TARGET_TOGGLE)  // NOLINT
 #ifdef NPSR_TRIG_INL_H_
@@ -11,7 +12,7 @@
 
 HWY_BEFORE_NAMESPACE();
 
-namespace npsr::HWY_NAMESPACE::sincos {
+namespace npsr::HWY_NAMESPACE::trig {
 template <bool IS_COS, typename Prec, typename V>
 HWY_API V SinCos(Prec &prec, V x) {
   using namespace hwy::HWY_NAMESPACE;
@@ -19,16 +20,16 @@ HWY_API V SinCos(Prec &prec, V x) {
   const DFromV<V> d;
   V ret;
   if constexpr (Prec::kLowAccuracy) {
-    ret = SmallArgLow<IS_COS>(x);
+    ret = Low<IS_COS>(x);
   } else {
-    ret = SmallArg<IS_COS>(x);
+    ret = High<IS_COS>(x);
   }
   if constexpr (Prec::kLargeArgument) {
     // Identify inputs requiring extended precision (very large arguments)
     auto has_large_arg = Gt(Abs(x), Set(d, kIsSingle ? 10000.0f : 16777216.0));
     if (HWY_UNLIKELY(!AllFalse(d, has_large_arg))) {
       // Use extended precision algorithm for large arguments
-      ret = IfThenElse(has_large_arg, LargeArg<IS_COS>(x), ret);
+      ret = IfThenElse(has_large_arg, Extended<IS_COS>(x), ret);
     }
   }
   if constexpr (Prec::kSpecialCases || Prec::kExceptions) {
@@ -40,16 +41,16 @@ HWY_API V SinCos(Prec &prec, V x) {
   }
   return ret;
 }
-}  // namespace npsr::HWY_NAMESPACE::sincos
+}  // namespace npsr::HWY_NAMESPACE::trig
 
 namespace npsr::HWY_NAMESPACE {
 template <typename Prec, typename V>
 HWY_API V Sin(Prec &prec, V x) {
-  return sincos::SinCos<false>(prec, x);
+  return trig::SinCos<false>(prec, x);
 }
 template <typename Prec, typename V>
 HWY_API V Cos(Prec &prec, V x) {
-  return sincos::SinCos<true>(prec, x);
+  return trig::SinCos<true>(prec, x);
 }
 }  // namespace npsr::HWY_NAMESPACE
 

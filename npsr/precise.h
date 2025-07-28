@@ -16,27 +16,15 @@ constexpr auto kLowAccuracy = _LowAccuracy{};
 
 struct Round {
   struct _Force {};
-  struct _Nearest {};
-  struct _Down {};
-  struct _Up {};
-  struct _Zero {};
   static constexpr auto kForce = _Force{};
-  static constexpr auto kNearest = _Nearest{};
-#if 0  // not used yet
-  static constexpr auto kDown = _Down{};
-  static constexpr auto kUp = _Up{};
-  static constexpr auto kZero = _Zero{};
-#endif
 };
 
 struct Subnormal {
   struct _DAZ {};
   struct _FTZ {};
   struct _IEEE754 {};
-#if 0  // not used yet
   static constexpr auto kDAZ = _DAZ{};
   static constexpr auto kFTZ = _FTZ{};
-#endif
   static constexpr auto kIEEE754 = _IEEE754{};
 };
 
@@ -135,19 +123,6 @@ class Precise {
 
   static constexpr bool kRoundForce =
       (std::is_same_v<Round::_Force, Args> || ...);
-  static constexpr bool _kRoundNearest =
-      (std::is_same_v<Round::_Nearest, Args> || ...);
-  static constexpr bool kRoundZero =
-      (std::is_same_v<Round::_Zero, Args> || ...);
-  static constexpr bool kRoundDown =
-      (std::is_same_v<Round::_Down, Args> || ...);
-  static constexpr bool kRoundUp = (std::is_same_v<Round::_Up, Args> || ...);
-  // only one rounding mode can be set
-  static_assert((_kRoundNearest + kRoundDown + kRoundUp + kRoundZero) <= 1,
-                "Only one rounding mode can be set at a time");
-  // if no rounding mode is set, default to round nearest
-  static constexpr bool kRoundNearest =
-      _kRoundNearest || (!kRoundDown && !kRoundUp && !kRoundZero);
 
   static constexpr bool kDAZ = (std::is_same_v<Subnormal::_DAZ, Args> || ...);
   static constexpr bool kFTZ = (std::is_same_v<Subnormal::_FTZ, Args> || ...);
@@ -160,17 +135,7 @@ class Precise {
   static constexpr bool kIEEE754 = _kIEEE754 || !(kDAZ || kFTZ);
 
  private:
-  int _NewRoundingMode() const {
-    if constexpr (kRoundDown) {
-      return FE_DOWNWARD;
-    } else if constexpr (kRoundUp) {
-      return FE_UPWARD;
-    } else if constexpr (kRoundZero) {
-      return FE_TOWARDZERO;
-    } else {
-      return FE_TONEAREST;
-    }
-  }
+  int _NewRoundingMode() const { return FE_TONEAREST; }
   int _rounding_mode = 0;
   bool _retrieve_rounding_mode = false;
   fexcept_t _exceptions;
