@@ -1,18 +1,16 @@
-import os
 import pathlib
 import sys
 import click
-import spin
-from spin.cmds import meson
 
 curdir = pathlib.Path(__file__).parent
 rootdir = curdir.parent
+toolsdir = rootdir / "tools"
+sys.path.insert(0, str(toolsdir))
 
 
-@click.command(help="Generate sollya python based files")
+@click.command(help="Generate sollya c++/python based files")
 @click.option("-f", "--force", is_flag=True, help="Force regenerate all files")
-def generate(*, force):
-    spin.util.run(
-        ["python", str(rootdir / "tools" / "sollya" / "generate.py")]
-        + (["--force"] if force else []),
-    )
+def sollya(*, force):
+    import sollya  # type: ignore[import]
+
+    sollya.main(force=force)

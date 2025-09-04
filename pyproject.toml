@@ -5,17 +5,17 @@ requires = [
 ]
 
 [project]
-name = "numpy-simd-routines-test"
+name = "numpy_sr"
 version = "1.0.0.dev0"
 # TODO: add `license-files` once PEP 639 is accepted (see meson-python#88)
 license = {file = "LICENSE.txt"}
 
-description = "Fundamental package for array computing in Python"
+description = "NumPy SIMD Routines"
 authors = [{name = "NumPy Developers."}]
 maintainers = [
-    {name = "NumPy Developers", email="numpy-discussion@python.org"},
+    {name = "NumPy Developers", email="numpy-discussion@python.org"}
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 readme = "README.md"
 classifiers = [
     'Intended Audience :: Science/Research',
@@ -23,11 +23,11 @@ classifiers = [
 
 [project.urls]
 homepage = "https://numpy.org"
-documentation = "https://numpy.org/doc/"
-source = "https://github.com/numpy/numpy"
-download = "https://pypi.org/project/numpy/#files"
-tracker = "https://github.com/numpy/numpy/issues"
-"release notes" = "https://numpy.org/doc/stable/release"
+documentation = "https://sr.numpy.org/doc/"
+source = "https://github.com/numpy/numpy-simd-routines"
+download = "https://pypi.org/project/numpy_sr/#files"
+tracker = "https://github.com/numpy/numpy-simd-routines/issues"
+"release notes" = "https://sr.numpy.org/doc/stable/release"
 
 #[tool.meson-python.args]
 #install = ['--tags=runtime,python-runtime,tests,devel']
@@ -37,5 +37,5 @@ package = 'numpy_sr'
 
 [tool.spin.commands]
 "Build" = [
-  ".spin/cmds.py:generate",
+  ".spin/cmds.py:sollya",
 ]

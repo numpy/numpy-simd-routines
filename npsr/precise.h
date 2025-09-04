@@ -1,39 +1,93 @@
-#ifndef NUMPY_SIMD_ROUTINES_NPSR_PRECISE_H_
-#define NUMPY_SIMD_ROUTINES_NPSR_PRECISE_H_
+#ifndef NPSR_PRECISE_H_
+#define NPSR_PRECISE_H_
+
+#include <array>
 #include <cfenv>
+#include <string>
 #include <type_traits>
 
 namespace npsr {
+using std::is_same_v;
 
+// Tag types for configuring floating-point behavior
+// These allow compile-time configuration without runtime overhead
+
+// Algorithm configuration tags
+// Skip extended precision for |x| > 2^24 (float) or 2^53 (double)
 struct _NoLargeArgument {};
+// Skip checks for NaN, Inf, and other special values
 struct _NoSpecialCases {};
-struct _NoExceptions {};
+struct _NoExceptions {};  // Disable floating-point exception tracking
+// Use faster, less accurate algorithms (typ. 1-4 ULP vs 1.0 ULP)
 struct _LowAccuracy {};
+
+// Convenience constants for cleaner API
 constexpr auto kNoLargeArgument = _NoLargeArgument{};
 constexpr auto kNoSpecialCases = _NoSpecialCases{};
 constexpr auto kNoExceptions = _NoExceptions{};
 constexpr auto kLowAccuracy = _LowAccuracy{};
 
-struct Round {
-  struct _Force {};
-  static constexpr auto kForce = _Force{};
-};
-
+// Subnormal (denormal) number handling modes
+// Controls how the CPU handles numbers smaller than the minimum normalized
+// value
 struct Subnormal {
-  struct _DAZ {};
-  struct _FTZ {};
-  struct _IEEE754 {};
+  struct _DAZ {};  // Denormals Are Zero: treat subnormals as zero on input
+  struct _FTZ {};  // Flush To Zero: round subnormal results to zero
+  struct _IEEE754 {
+  };  // Strict IEEE 754 compliance: handle subnormals correctly
+
   static constexpr auto kDAZ = _DAZ{};
   static constexpr auto kFTZ = _FTZ{};
   static constexpr auto kIEEE754 = _IEEE754{};
 };
 
-struct FPExceptions {
+// Floating-point exception flags
+// These match the standard C library FE_* macros
+class FPExceptions {
+ public:
   static constexpr auto kNone = 0;
+// guard against missing macros on some platforms
+// (e.g. Emscripten)
+#ifdef FE_INVALID
   static constexpr auto kInvalid = FE_INVALID;
+#else
+  static constexpr auto kInvalid = 0;
+#endif
+#ifdef FE_DIVBYZERO
   static constexpr auto kDivByZero = FE_DIVBYZERO;
+#else
+  static constexpr auto kDivByZero = 0;
+#endif
+#ifdef FE_OVERFLOW
   static constexpr auto kOverflow = FE_OVERFLOW;
+#else
+  static constexpr auto kOverflow = 0;
+#endif
+#ifdef FE_UNDERFLOW
   static constexpr auto kUnderflow = FE_UNDERFLOW;
+#else
+  static constexpr auto kUnderflow = 0;
+#endif
+  static constexpr auto kAll = kInvalid | kDivByZero | kOverflow | kUnderflow;
+
+  void Raise(int errors) noexcept { mask_ |= errors; }
+
+ protected:
+  void Load() noexcept { loaded_ = std::fegetexceptflag(&saved_, kAll) == 0; }
+
+  ~FPExceptions() noexcept {
+    if (loaded_) {
+      std::fesetexceptflag(&saved_, kAll);
+    }
+    if (mask_ != kNone) {
+      std::feraiseexcept(mask_);
+    }
+  }
+
+ private:
+  bool loaded_ = false;
+  int mask_ = kNone;
+  std::fexcept_t saved_;
 };
 
 /**
@@ -54,98 +108,91 @@ struct FPExceptions {
  *
  * @tparam Args Variadic template arguments for configuration flags
  *
+ * Configuration options:
+ * - kLowAccuracy: Use faster algorithms with ~1-4 ULP error (default: high
+ * accuracy ~1.0 ULP)
+ * - kNoLargeArgument: Skip extended precision reduction for large arguments
+ * - kNoSpecialCases: Skip NaN/Inf handling (assumes finite inputs)
+ * - kNoExceptions: Disable FP exception tracking for better performance
+ * - Subnormal::kDAZ/kFTZ: Flush subnormals to zero for performance
+ * - Subnormal::kIEEE754: Strict IEEE 754 compliance (default if DAZ/FTZ not
+ * specified)
+ *
  * @example
  * ```cpp
  * using namespace hwy::HWY_NAMESPACE;
  * using namespace npsr;
  * using namespace npsr::HWY_NAMESPACE;
  *
+ * // Configure for maximum performance with reduced accuracy
  * Precise precise = {kLowAccuracy, kNoSpecialCases, kNoLargeArgument};
+ *
  * const ScalableTag<float> d;
- * typename V = Vec<DFromV<SclableTag>>;
+ * using V = Vec<decltype(d)>;
+ *
  * for (size_t i = 0; i < n; i += Lanes(d)) {
- *     V input = LoadU(d, &input[i]);
- *     V result = Sin(precise, input);
- *     StoreU(result, d, &output[i]);
+ *     V input = LoadU(d, &input_data[i]);
+ *     V result = Sin(precise, input);  // Uses configured precision
+ *     StoreU(result, d, &output_data[i]);
  * }
  * ```
  */
 template <typename... Args>
-class Precise {
+class Precise : public FPExceptions {
  public:
-  Precise() {
+  // Default constructor saves current FP state
+  Precise() noexcept {
+    // Save exception flags unless disabled
     if constexpr (!kNoExceptions) {
-      fegetexceptflag(&_exceptions, FE_ALL_EXCEPT);
-    }
-    if constexpr (kRoundForce) {
-      _rounding_mode = fegetround();
-      int new_mode = _NewRoundingMode();
-      if (_rounding_mode != new_mode) {
-        _retrieve_rounding_mode = true;
-        fesetround(new_mode);
-      }
+      FPExceptions::Load();
     }
   }
+
+  // Variadic constructor for tag-based configuration
   template <typename T1, typename... Rest>
-  Precise(T1&& arg1, Rest&&... rest) {}
-
-  void FlushExceptions() { fesetexceptflag(&_exceptions, FE_ALL_EXCEPT); }
-
-  void Raise(int errors) {
-    static_assert(!kNoExceptions,
-                  "Cannot raise exceptions in NoExceptions mode");
-    _exceptions |= errors;
+  Precise(T1&& arg1, Rest&&... rest) noexcept : Precise() {
+    // Tags are processed at compile time via template parameters
+    // This constructor exists to enable Precise{tag1, tag2, ...} syntax
   }
-  ~Precise() {
-    FlushExceptions();
-    if constexpr (kRoundForce) {
-      if (_retrieve_rounding_mode) {
-        fesetround(_rounding_mode);
-      }
-    }
-  }
-  static constexpr bool kNoExceptions =
-      (std::is_same_v<_NoExceptions, Args> || ...);
+
+  // Compile-time configuration queries
+  // These allow algorithms to optimize based on precision requirements
+  static constexpr bool kNoExceptions = (is_same_v<_NoExceptions, Args> || ...);
   static constexpr bool kNoLargeArgument =
-      (std::is_same_v<_NoLargeArgument, Args> || ...);
+      (is_same_v<_NoLargeArgument, Args> || ...);
   static constexpr bool kNoSpecialCases =
-      (std::is_same_v<_NoSpecialCases, Args> || ...);
-  static constexpr bool kLowAccuracy =
-      (std::is_same_v<_LowAccuracy, Args> || ...);
-  // defaults to high accuracy if no low accuracy flag is set
+      (is_same_v<_NoSpecialCases, Args> || ...);
+  static constexpr bool kLowAccuracy = (is_same_v<_LowAccuracy, Args> || ...);
+
+  // Derived flags (defaults when not explicitly specified)
   static constexpr bool kHighAccuracy = !kLowAccuracy;
-  // defaults to large argument support if no no large argument flag is set
   static constexpr bool kLargeArgument = !kNoLargeArgument;
-  // defaults to special cases support if no no special cases flag is set
   static constexpr bool kSpecialCases = !kNoSpecialCases;
-  // defaults to exception support if no no exception flag is set
   static constexpr bool kExceptions = !kNoExceptions;
 
-  static constexpr bool kRoundForce =
-      (std::is_same_v<Round::_Force, Args> || ...);
-
-  static constexpr bool kDAZ = (std::is_same_v<Subnormal::_DAZ, Args> || ...);
-  static constexpr bool kFTZ = (std::is_same_v<Subnormal::_FTZ, Args> || ...);
+  // Subnormal handling configuration
+  static constexpr bool kDAZ = (is_same_v<Subnormal::_DAZ, Args> || ...);
+  static constexpr bool kFTZ = (is_same_v<Subnormal::_FTZ, Args> || ...);
   static constexpr bool _kIEEE754 =
-      (std::is_same_v<Subnormal::_IEEE754, Args> || ...);
+      (is_same_v<Subnormal::_IEEE754, Args> || ...);
+
+  // Ensure IEEE754 mode is exclusive with DAZ/FTZ
   static_assert(!_kIEEE754 || !(kDAZ || kFTZ),
                 "IEEE754 mode cannot be used "
                 "with Denormals Are Zero (DAZ) or Flush To Zero (FTZ) "
                 "subnormal handling");
+
+  // Default to IEEE754 if no subnormal mode specified
   static constexpr bool kIEEE754 = _kIEEE754 || !(kDAZ || kFTZ);
+};  // namespace npsr
 
- private:
-  int _NewRoundingMode() const { return FE_TONEAREST; }
-  int _rounding_mode = 0;
-  bool _retrieve_rounding_mode = false;
-  fexcept_t _exceptions;
-};
+// Deduction guides for convenient construction
 
+// Enable Precise{} with no arguments
 Precise() -> Precise<>;
-
-// For Precise{args...} -> Precise<decltype(args)...>
+// Enable Precise{tag1, tag2, ...} syntax
 template <typename T1, typename... Rest>
 Precise(T1&&, Rest&&...) -> Precise<std::decay_t<T1>, std::decay_t<Rest>...>;
 
 }  // namespace npsr
-#endif  // NUMPY_SIMD_ROUTINES_NPSR_PRECISE_H_
+#endif  // NPSR_PRECISE_H_

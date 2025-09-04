@@ -1,13 +1,13 @@
-#include "npsr/common.h"
-#include "npsr/trig/data/data.h"
-#include "npsr/utils-inl.h"
-
 #if defined(NPSR_TRIG_HIGH_INL_H_) == defined(HWY_TARGET_TOGGLE)  // NOLINT
 #ifdef NPSR_TRIG_HIGH_INL_H_
 #undef NPSR_TRIG_HIGH_INL_H_
 #else
 #define NPSR_TRIG_HIGH_INL_H_
 #endif
+
+#include "npsr/hwy.h"
+#include "npsr/lut-inl.h"
+#include "npsr/trig/data/data.h"
 
 HWY_BEFORE_NAMESPACE();
 
@@ -56,7 +56,7 @@ HWY_INLINE V High(V x) {
     //   N' = N - 0.5
     n = Sub(n, Set(d, 0.5f));
   }
-  auto WideCal = [](VW nh, VW xh_abs) -> VW {
+  auto WideCal = [](const VW &nh, const VW &xh_abs) -> VW {
     const DFromV<VW> dw;
     constexpr auto kPiPrec35 = data::kPiPrec35<true>;
     VW r = NegMulAdd(nh, Set(dw, kPiPrec35[0]), xh_abs);
@@ -117,7 +117,6 @@ template <bool IS_COS, typename V, HWY_IF_F64(TFromV<V>)>
 HWY_INLINE V High(V x) {
   using namespace hn;
   namespace data = ::npsr::trig::data;
-
   using T = TFromV<V>;
   using D = DFromV<V>;
   using DU = RebindToUnsigned<D>;
@@ -137,14 +136,12 @@ HWY_INLINE V High(V x) {
   VU table_idx = And(n_int, Set(du, 0xF));  // Mask to get n mod 16
 
   // Step 2: Load precomputed sine/cosine values for n mod 16
-  V sin_hi = LutX2(data::kHiSinKPi16Table, table_idx);
-  V cos_hi = LutX2(data::kHiCosKPi16Table, table_idx);
+  V sin_hi, cos_hi, cos_lo;
+  kKPi16Table.Load(table_idx, sin_hi, cos_hi, cos_lo);
   // Note: cos_lo and sin_lo are packed together (32 bits each) to save memory.
   // cos_lo can be used as-is since it's in the upper bits, sin_lo needs
   // extraction. The precision loss is negligible for the final result.
-  // see lut-inl.h.py for the table generation code.
-  V cos_lo = LutX2(data::kPackedLowSinCosKPi16Table, table_idx);
-  // Extract sin_low from packed format (upper 32 bits)
+  // see data/lut-inl.h.sol for the table generation code.
   V sin_lo = BitCast(d, ShiftLeft<32>(BitCast(du, cos_lo)));
 
   // Step 3: Multi-precision computation of remainder r

@@ -1,13 +1,12 @@
-#include "npsr/common.h"
-#include "npsr/trig/data/data.h"
-#include "npsr/utils-inl.h"
-
 #if defined(NPSR_TRIG_LOW_INL_H_) == defined(HWY_TARGET_TOGGLE)  // NOLINT
 #ifdef NPSR_TRIG_LOW_INL_H_
 #undef NPSR_TRIG_LOW_INL_H_
 #else
 #define NPSR_TRIG_LOW_INL_H_
 #endif
+
+#include "npsr/hwy.h"
+#include "npsr/trig/data/data.h"
 
 HWY_BEFORE_NAMESPACE();
 
@@ -121,13 +120,13 @@ HWY_API V Low(V x) {
     r_lo = NegMulAdd(n, Set(d, kPi[3]), r_lo);
   }
 
-  if (kIsSingle) {
+  if constexpr (kIsSingle) {
     r = r_lo;
   }
   V r2 = Mul(r, r);
   V poly = PolyLow<IS_COS>(r, r2);
 
-  if (!kIsSingle) {
+  if constexpr (!kIsSingle) {
     V r2_corr = Mul(r2, r_lo);
     poly = MulAdd(r2_corr, poly, r_lo);
   }
