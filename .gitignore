@@ -118,3 +118,6 @@ Thumbs.db
 # pytest generated files #
 ##########################
 /.pytest_cache
+
+# NIXOS generated files #
+.direnv/
