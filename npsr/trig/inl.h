@@ -23,7 +23,6 @@
 HWY_BEFORE_NAMESPACE();
 
 namespace npsr::HWY_NAMESPACE::trig {
-
 /**
  * @brief Unified sine/cosine implementation with configurable precision
  *
@@ -32,13 +31,13 @@ namespace npsr::HWY_NAMESPACE::trig {
  * - Input magnitude (standard vs extended precision for large arguments)
  * - Special case handling (NaN, Inf)
  *
- * @tparam IS_COS   true for cosine, false for sine
+ * @tparam OP       Operation type: kSin or kCos
  * @tparam Prec     Precise configuration class with accuracy/feature flags
  * @tparam V        Highway vector type
  *
  * @param prec      Precise object controlling FP environment and exceptions
  * @param x         Input vector
- * @return          sin(x) or cos(x) depending on IS_COS
+ * @return          sin(x) or cos(x) depending on OP
  *
  * Algorithm selection:
  * 1. If kLowAccuracy: Use Low<> (Cody-Waite with minimal polynomial)
@@ -49,8 +48,8 @@ namespace npsr::HWY_NAMESPACE::trig {
  * - Float: |x| > 10,000 (empirically chosen for accuracy)
  * - Double: |x| > 2^24 (16,777,216 - where 53-bit mantissa loses precision)
  */
-template <bool IS_COS, typename Prec, typename V>
-HWY_API V SinCos(Prec &prec, V x) {
+template <Operation OP, typename Prec, typename V>
+NPSR_INTRIN V Trig(Prec &prec, V x) {
   using namespace hwy::HWY_NAMESPACE;
   constexpr bool kIsSingle = std::is_same_v<TFromV<V>, float>;
   const DFromV<V> d;
@@ -59,11 +58,11 @@ HWY_API V SinCos(Prec &prec, V x) {
   if constexpr (Prec::kLowAccuracy) {
     // Low precision: Cody-Waite reduction with degree-9 polynomial
     // Error: ~2 ULP and 3~ for non-fma
-    ret = Low<IS_COS>(x);
+    ret = Low<OP>(x);
   } else {
     // High precision: π/16 reduction with table lookup + polynomial
     // Error: ~1 ULP
-    ret = High<IS_COS>(x);
+    ret = High<OP>(x);
   }
   // Step 2: Handle special cases (NaN, Inf) if enabled
   auto is_finite = IsFinite(x);
@@ -71,7 +70,7 @@ HWY_API V SinCos(Prec &prec, V x) {
     // IEEE 754 requires: sin(±∞) = NaN, cos(±∞) = NaN
     ret = IfThenElse(is_finite, ret, NaN(d));
     // -0.0 should return -0.0 for sine
-    if constexpr (!IS_COS) {
+    if constexpr (OP == Operation::kSin) {
       ret = IfThenElse(Eq(x, Set(d, 0.0)), x, ret);
     }
   }
@@ -89,7 +88,7 @@ HWY_API V SinCos(Prec &prec, V x) {
     if (HWY_UNLIKELY(!AllFalse(d, has_large_arg))) {
       // Payne-Hanek reduction: Uses ~96-bit (float) or ~192-bit (double)
       // precision for 4/π to maintain accuracy for huge arguments
-      ret = IfThenElse(has_large_arg, Extended<IS_COS>(x), ret);
+      ret = IfThenElse(has_large_arg, Extended<OP>(x), ret);
     }
   }
   // Step 4: Raise invalid operation exception for infinity inputs
@@ -107,7 +106,7 @@ namespace npsr::HWY_NAMESPACE {
 /**
  * @brief Compute sine of vector elements with configurable precision
  *
- * @tparam Prec  Precise configuration (e.g., Precise<kLowAccuracy>)
+ * @tparam Prec  Precise configuration (e.g., Precise{kLowAccuracy})
  * @tparam V     Highway vector type
  * @param prec   Precise object managing FP environment
  * @param x      Input vector
@@ -115,19 +114,21 @@ namespace npsr::HWY_NAMESPACE {
  *
  * @example
  * ```cpp
- * Precise<kHighAccuracy> prec;
+ * Precise prec{
+ *  kLowAccuracy, kNoLargeArgument, kNoExceptions, kNoSpecialCases
+ * };
  * auto result = Sin(prec, input_vector);
  * ```
  */
 template <typename Prec, typename V>
-HWY_API V Sin(Prec &prec, V x) {
-  return trig::SinCos<false>(prec, x);
+NPSR_INTRIN V Sin(Prec &prec, V x) {
+  return trig::Trig<trig::Operation::kSin>(prec, x);
 }
 
 /**
  * @brief Compute cosine of vector elements with configurable precision
  *
- * @tparam Prec  Precise configuration (e.g., Precise<kLowAccuracy>)
+ * @tparam Prec  Precise configuration (e.g., Precise{kLowAccuracy})
  * @tparam V     Highway vector type
  * @param prec   Precise object managing FP environment
  * @param x      Input vector
@@ -135,13 +136,15 @@ HWY_API V Sin(Prec &prec, V x) {
  *
  * @example
  * ```cpp
- * Precise<kNoLargeArgument, kNoSpecialCases> prec;
+ * Precise prec{
+ *  kLowAccuracy, kNoLargeArgument, kNoExceptions, kNoSpecialCases
+ * };
  * auto result = Cos(prec, input_vector);
  * ```
  */
 template <typename Prec, typename V>
-HWY_API V Cos(Prec &prec, V x) {
-  return trig::SinCos<true>(prec, x);
+NPSR_INTRIN V Cos(Prec &prec, V x) {
+  return trig::Trig<trig::Operation::kCos>(prec, x);
 }
 
 }  // namespace npsr::HWY_NAMESPACE

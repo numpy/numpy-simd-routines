@@ -76,7 +76,7 @@ class Lut {
    * @note Index values must be in range [0, kCols)
    */
   template <typename VU, typename... OutV>
-  HWY_ATTR void Load(VU idx, OutV &...out) const {
+  HWY_INLINE void Load(VU idx, OutV &...out) const {
     static_assert(sizeof...(OutV) == kRows,
                   "Number of output vectors must match number of rows in LUT");
     using namespace hn;
@@ -102,7 +102,7 @@ class Lut {
 
   /// Dispatch to optimal row-load implementation based on vector/LUT size
   template <size_t Off = 0, typename VU, typename... OutV>
-  HWY_ATTR void LoadRow_(VU idx, OutV &...out) const {
+  HWY_INLINE void LoadRow_(VU idx, OutV &...out) const {
     using namespace hn;
     using DU = DFromV<VU>;
     const DU du;
@@ -126,7 +126,7 @@ class Lut {
 
   // Load using single table lookup (vector size == table width)
   template <size_t Off = 0, typename VInd, typename OutV0, typename... OutV>
-  HWY_ATTR void LoadX1_(const VInd &ind, OutV0 &out0, OutV &...out) const {
+  HWY_INLINE void LoadX1_(const VInd &ind, OutV0 &out0, OutV &...out) const {
     using namespace hn;
     using D = DFromV<OutV0>;
     const D d;
@@ -141,7 +141,7 @@ class Lut {
 
   // Load using two table lookups (vector size == table width / 2)
   template <size_t Off = 0, typename VInd, typename OutV0, typename... OutV>
-  HWY_ATTR void LoadX2_(const VInd &ind, OutV0 &out0, OutV &...out) const {
+  HWY_INLINE void LoadX2_(const VInd &ind, OutV0 &out0, OutV &...out) const {
     using namespace hn;
     using D = DFromV<OutV0>;
     const D d;
@@ -158,7 +158,7 @@ class Lut {
 
   //  General fallback using gather instructions
   template <size_t Off = 0, typename VU, typename OutV0, typename... OutV>
-  HWY_ATTR void LoadGather_(const VU &idx, OutV0 &out0, OutV &...out) const {
+  HWY_INLINE void LoadGather_(const VU &idx, OutV0 &out0, OutV &...out) const {
     using namespace hn;
     using D = DFromV<OutV0>;
     const D d;

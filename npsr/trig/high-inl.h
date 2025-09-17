@@ -8,13 +8,14 @@
 #include "npsr/hwy.h"
 #include "npsr/lut-inl.h"
 #include "npsr/trig/data/data.h"
+#include "npsr/trig/low-inl.h"  // Operation
 
 HWY_BEFORE_NAMESPACE();
 
 namespace npsr::HWY_NAMESPACE::trig {
 
-template <bool IS_COS, typename V, HWY_IF_F32(TFromV<V>)>
-HWY_INLINE V High(V x) {
+template <Operation OP, typename V, HWY_IF_F32(TFromV<V>)>
+NPSR_INTRIN V High(V x) {
   using namespace hn;
   namespace data = ::npsr::trig::data;
 
@@ -37,7 +38,7 @@ HWY_INLINE V High(V x) {
   // Transform cosine to sine using identity: cos(x) = sin(x + π/2)
   const V half_pi = Set(d, data::kHalfPi<T>);
   V x_trans = x_abs;
-  if constexpr (IS_COS) {
+  if constexpr (OP == Operation::kCos) {
     x_trans = Add(x_abs, half_pi);
   }
   // check zero input/subnormal for cosine (cos(~0) = 1)
@@ -49,7 +50,7 @@ HWY_INLINE V High(V x) {
   V n = Sub(n_biased, magic_round);
 
   // Adjust quotient for cosine (accounts for π/2 phase shift)
-  if constexpr (IS_COS) {
+  if constexpr (OP == Operation::kCos) {
     // For cosine, we computed N = round((x + π/2)/π) but need N' for x:
     //   N = round((x + π/2)/π) = round(x/π + 0.5)
     // This is often 1 more than round(x/π), so we subtract 0.5:
@@ -83,7 +84,7 @@ HWY_INLINE V High(V x) {
   // Extract octant sign information from quotient and flip the sign bit
   poly = Xor(poly,
              BitCast(d, ShiftLeft<sizeof(T) * 8 - 1>(BitCast(du, n_biased))));
-  if constexpr (IS_COS) {
+  if constexpr (OP == Operation::kCos) {
     poly = IfThenElse(is_cos_near_zero, Set(d, 1.0f), poly);
   } else {
     // Restore original sign for sine (odd function)
@@ -113,8 +114,8 @@ HWY_INLINE V High(V x) {
  *    - cos(x) = cos(n*π/16 + r) = cos(n*π/16)*cos(r) - sin(n*π/16)*sin(r)
  *
  */
-template <bool IS_COS, typename V, HWY_IF_F64(TFromV<V>)>
-HWY_INLINE V High(V x) {
+template <Operation OP, typename V, HWY_IF_F64(TFromV<V>)>
+NPSR_INTRIN V High(V x) {
   using namespace hn;
   namespace data = ::npsr::trig::data;
   using T = TFromV<V>;
@@ -206,7 +207,7 @@ HWY_INLINE V High(V x) {
   // sin(n*π/16 + r) = sin_table + cos_table*remainder (+ corrections)
   // cos(n*π/16 + r) = cos_table - sin_table*remainder (+ corrections)
   V result;
-  if constexpr (IS_COS) {
+  if constexpr (OP == Operation::kCos) {
     // Cosine reconstruction: cos_table - sin_table*remainder
     // Equivalent to: cos(a)*cos(r) - sin(a)*sin(r) but more efficient
     V res_hi = NegMulAdd(r, sin_hi, cos_hi);  // cos_hi - r*sin_hi
