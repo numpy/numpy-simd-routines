@@ -44,13 +44,16 @@ class Lut {
   // Implementation details for transposition optimization
   static constexpr size_t kTransposeBy = HWY_LANES(T);
   static constexpr size_t kTransposeTail = kRows % kTransposeBy;
-  static constexpr size_t kTransposeLength = (kRows - kTransposeTail) * kCols;
-
   // Determine at compile-time if transposition optimization is viable
   static constexpr bool kInitTranspose = !HWY_HAVE_SCALABLE && (
     kRows / kTransposeBy > 0 && kCols % kTransposeBy == 0 &&
     (kTransposeBy == 2 || kTransposeBy == 4) // Currently supports 2x or 4x unrolling
   );
+  // When kInitTranspose is false kTransposeLength would be 0 (kRows < kTransposeBy),
+  // which would produce a zero-size array (MSVC forbid it) — use 1 as a placeholder instead.
+  static constexpr size_t kTransposeLength = kInitTranspose
+      ? (kRows - kTransposeTail) * kCols
+      : 1;
 
  /**
    * @brief Constructs the table from row arrays.
@@ -89,8 +92,19 @@ class Lut {
 
 #if !HWY_HAVE_SCALABLE
     // Try optimized transposed load first
-    if constexpr (kInitTranspose) {
-      LoadTranspose_(idx, out...);
+    using DU = DFromV<VU>;
+    const DU du;
+    constexpr size_t kLanes = HWY_LANES(TU);
+    // Try optimized transposed load first
+    if constexpr (kInitTranspose && kLanes == kTransposeBy) {
+      HWY_ALIGN TU s_idx[kLanes];
+      Store(ShiftLeft<kTransposeBy/2>(idx), du, s_idx);
+      if constexpr (kTransposeBy == 2) {
+        LoadTransposeX2_(s_idx, idx, out...);
+      }
+      else {
+        LoadTransposeX4_(s_idx, idx, out...);
+      }
     }
 #else
     if constexpr (0) {}
@@ -137,33 +151,6 @@ class Lut {
   }
 
   // --- Transposed Load Implementation ---
-
-  template <size_t Off = 0, typename VU, typename... OutV>
-  HWY_INLINE void LoadTranspose_(const VU &idx, OutV &...out) const {
-    using namespace hn;
-    using DU = DFromV<VU>;
-    using TU = TFromD<DU>;
-    const DU du;
-
-    constexpr size_t kLanes = Lanes(du);
-
-    // Only use transposed load if vector lanes match the transpose blocking factor
-    if constexpr (kLanes == kTransposeBy) {
-      HWY_ALIGN TU s_idx[kLanes];
-      Store(ShiftLeft<kTransposeBy/2>(idx), du, s_idx);
-      if constexpr (kTransposeBy == 2) {
-        LoadTransposeX2_(s_idx, idx, out...);
-      }
-      else {
-        static_assert(kTransposeBy == 4, "It's already guarded by kInitTranspose");
-        LoadTransposeX4_(s_idx, idx, out...);
-      }
-    }
-    else {
-      LoadRow_(idx, out...);
-    }
-  }
-
   // 2-wide transposed load optimization
   template <size_t Off = 0, typename TU, typename VU, typename OutV0, typename... OutV>
   HWY_INLINE void LoadTransposeX2_(const TU *trans_idx, const VU &idx,
@@ -226,6 +213,7 @@ class Lut {
   // Selects the best row loading strategy based on vector size vs table width
   template <size_t Off = 0, typename VU, typename... OutV>
   HWY_INLINE void LoadRow_(const VU& idx, OutV& ...out) const {
+#if !HWY_HAVE_SCALABLE
     using namespace hn;
     using DU = DFromV<VU>;
     const DU du;
@@ -236,8 +224,7 @@ class Lut {
     using M = MFromD<D>;
     const D d;
 
-#if !HWY_HAVE_SCALABLE
-    constexpr size_t kLanes = Lanes(du);
+    constexpr size_t kLanes = HWY_LANES(TI);
     // Strategy 1: Vector size equals table width (Single Table Lookup)
     if constexpr (kLanes == kCols) {
       const auto ind = IndicesFromVec(d, idx);
