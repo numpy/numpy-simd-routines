@@ -32,7 +32,30 @@ using hn::TFromV;
 using hn::VFromD;
 constexpr bool kNativeFMA = HWY_NATIVE_FMA != 0;
 
-inline HWY_ATTR void DummyToSuppressUnusedWarning() {}
+/**
+ * Substitute for the FMA product-error idiom on targets without native FMA.
+ *
+ * With FMA, `e = MulSub(a, b, Round(a*b))` recovers the rounding error of the
+ * product exactly. Without it, that expression only sees the already-rounded
+ * product and returns nothing useful. Instead, split both operands with a bit
+ * mask (26 significant bits in the head) so `head = a_hi*b_hi` is exact by
+ * construction, and return the dropped cross terms in `rest`:
+ *   a*b == head + rest, up to a negligible ~2^-105-scale rounding of `rest`.
+ */
+template <typename V, HWY_IF_F64(TFromV<V>)>
+NPSR_INTRIN void SplitMul(V a, V b, V& head, V& rest) {
+  using namespace hn;
+  const DFromV<V> d;
+  const RebindToUnsigned<decltype(d)> du;
+  const V mask = BitCast(d, Set(du, 0xFFFFFFFFF8000000u));
+  const V a_hi = And(a, mask);
+  const V a_lo = Sub(a, a_hi);
+  const V b_hi = And(b, mask);
+  const V b_lo = Sub(b, b_hi);
+  head = Mul(a_hi, b_hi);
+  rest = MulAdd(a_hi, b_lo, Mul(a_lo, b));
+}
+
 }  // namespace npsr::HWY_NAMESPACE
 HWY_AFTER_NAMESPACE();
 
