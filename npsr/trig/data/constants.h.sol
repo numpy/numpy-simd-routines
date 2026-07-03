@@ -39,7 +39,9 @@ Append(
   
   "template <> inline constexpr double kPi<double, false>[] = " @
   KArray_(Float64, pi, [|RN, 24, 24, 24|], [|RN, 53|]), // no FMA: 3x24-bit + 1x53-bit
-  // The 24-bit pieces ensure n*πᵢ is exact for |n| < 2^29
+  // The 24-bit pieces ensure n*πᵢ is exact (no rounding) for the low path's
+  // largest quotient; the 53-bit tail sits at 2^-76 so its inexact product
+  // rounds ~2^-105, harmless even for tiny reduced arguments near k*π/2
   "",
   
   // Special 35-bit precision π for specific algorithms
@@ -61,18 +63,17 @@ Append(
 );
 
 // Non-FMA version of π/16 for High precision implementation
-// Special handling: components are reordered [0,2,3,1] for proper evaluation
-// Without FMA, multiplication order matters to minimize rounding errors
-vNFma = Constants(pi/16, [|RN, 27, 27|], [|RN, 29|], [|RN, 53|]);
+// Pieces are applied in this natural (descending) order; each subtraction's
+// rounding error is captured into r_lo by the reduction DAG. The 27/27/29-bit
+// heads keep n*πᵢ/16 exact for |n| <= 85445660 (= round(2^24 * 16/π), the
+// largest quotient on the high path); the 53-bit tail sits at 2^-91 so its
+// inexact product rounds ~2^-117, harmless even for tiny reduced arguments
 Append(
   "template <bool FMA> inline constexpr double kPiDiv16Prec29[] = " @
   KArray_(Float64, pi/16, [|RN, 53|], [|RN, 29|], [|RN, 53|]),
-  
-  // Non-FMA version reorders components: [0], [2], [3], [1]
-  // This ordering ensures proper evaluation without FMA:
-  // r = x - n*π₁/16 - n*π₃/16 - n*π₄/16 - n*π₂/16
+
   "template <> inline constexpr double kPiDiv16Prec29<false>[] = " @
-  CArray([|vNFma[0], vNFma[2], vNFma[3], vNFma[1]|], 4) @ ";",
+  KArray_(Float64, pi/16, [|RN, 27, 27|], [|RN, 29|], [|RN, 53|]),
   "",
   
   // Simple scalar constants
