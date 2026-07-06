@@ -22,3 +22,16 @@
 ###########
 *.patch
 *.diff
+build/
+build-install/
+# Test unit's default report artifact (override path via NPSR_TEST_REPORT)
+/npsr-test-report.json
+subprojects/highway/
+subprojects/packagecache/
+subprojects/googletest-1.17.0/
+.venv/
+.cache/
+__pycache__/
+# Hypothesis example database (numpy_sr test suite)
+.hypothesis/
+/subprojects/.wraplock

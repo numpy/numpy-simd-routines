@@ -1,5 +1,6 @@
 import pathlib
 import sys
+
 import click
 
 curdir = pathlib.Path(__file__).parent

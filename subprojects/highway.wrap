@@ -1,0 +1,8 @@
+[wrap-git]
+url = https://github.com/google/highway.git
+revision = master
+depth = 1
+
+[provide]
+libhwy = hwy_dep
+libhwy-test = hwy_test_dep
