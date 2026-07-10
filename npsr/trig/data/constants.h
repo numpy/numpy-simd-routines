@@ -30,7 +30,7 @@ template <> inline constexpr double kPiMul2<double>[] = {
 template <bool FMA> inline constexpr double kPiDiv16Prec29[] = {
 0x1.921fb54442d18p-3, 0x1.1a62633p-57, 0x1.45c06e0e68948p-89, };
 template <> inline constexpr double kPiDiv16Prec29<false>[] = {
-0x1.921fb54p-3, 0x1.a626331p-61, 0x1.1701b839a252p-91, 0x1.10b461p-33, 
+0x1.921fb54p-3, 0x1.10b461p-33, 0x1.a626331p-61, 0x1.1701b839a252p-91, 
 };
 
 template <typename T> inline constexpr char kInvPi = '_';

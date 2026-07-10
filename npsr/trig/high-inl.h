@@ -81,7 +81,9 @@ NPSR_INTRIN V High(V x) {
   VW poly_up = WideCal(PromoteUpperTo(dw, n), PromoteUpperTo(dw, x_abs));
 
   V poly = Combine(d, DemoteTo(dh, poly_up), DemoteTo(dh, poly_lo));
-  // Extract octant sign information from quotient and flip the sign bit
+  // sin(r) was reduced around n·π, and sin/cos flip sign every π, so the sign
+  // is the parity of n, carried in bit 0 of n_biased. Shift it into the sign
+  // position and XOR to flip the result on odd n.
   poly = Xor(poly,
              BitCast(d, ShiftLeft<sizeof(T) * 8 - 1>(BitCast(du, n_biased))));
   if constexpr (OP == Operation::kCos) {
@@ -95,15 +97,16 @@ NPSR_INTRIN V High(V x) {
 /**
  * This function computes sin(x) or cos(x) for |x| < 2^24 using the Cody-Waite
  * reduction algorithm combined with table lookup and polynomial approximation,
- * achieves < 1 ULP error for |x| < 2^24.
+ * achieves <= 1 ULP error for |x| < 2^24 (worst case reaches, but does not
+ * exceed, 1 ULP).
  *
  * Algorithm Overview:
  * 1. Range Reduction: Reduces input x to r where |r| < π/16
  *    - Computes n = round(x * 16/π) and r = x - n*π/16
- *    - Uses multi-precision arithmetic (3 parts of π/16) for accuracy
+ *    - Uses multi-word π/16 (3 words with FMA, 4 without) for accuracy
  *
  * 2. Table Lookup: Retrieves precomputed sin(n*π/16) and cos(n*π/16)
- *    - Includes high and low precision parts for cos values
+ *    - Stores high and low parts for both sin and cos (lows packed 32:32)
  *
  * 3. Polynomial Approximation: Computes sin(r) and cos(r)
  *    - sin(r) ≈ r * (1 + r²*P_sin(r²)) where P_sin is a minimax polynomial
@@ -142,17 +145,20 @@ NPSR_INTRIN V High(V x) {
   // Note: cos_lo and sin_lo are packed together (32 bits each) to save memory.
   // cos_lo can be used as-is since it's in the upper bits, sin_lo needs
   // extraction. The precision loss is negligible for the final result.
-  // see data/lut-inl.h.sol for the table generation code.
+  // see data/kpi16-inl.h.sol for the table generation code.
   V sin_lo = BitCast(d, ShiftLeft<32>(BitCast(du, cos_lo)));
 
   // Step 3: Multi-precision computation of remainder r
   // r = x - n*(π/16)_high
+  // Both splits apply their parts in descending order through the same DAG.
+  // Without native FMA the non-tail parts carry 27/25/29 bits. The two
+  // leading products n*part are exact for |n| < 85445660 = ceil(2^24*16/π)
+  // (split and bound co-tuned so n*part0 just fits in 53 bits); part2 and
+  // the tail are rounded products, but their product rounding — like each
+  // subtraction's — is captured exactly by the idioms below, so the decayed
+  // mul+sub sequence loses nothing against the fused path.
   constexpr auto kPiDiv16Prec29 = data::kPiDiv16Prec29<kNativeFMA>;
   V r_hi = NegMulAdd(n, Set(d, kPiDiv16Prec29[0]), x);
-  if constexpr (!kNativeFMA) {
-    // For F64, we need to handle the low precision part separately
-    r_hi = NegMulAdd(n, Set(d, kPiDiv16Prec29[3]), r_hi);
-  }
   const V pi16_med = Set(d, kPiDiv16Prec29[1]);
   const V pi16_lo = Set(d, kPiDiv16Prec29[2]);
   V r_med = NegMulAdd(n, pi16_med, r_hi);
@@ -162,21 +168,31 @@ NPSR_INTRIN V High(V x) {
   V term = NegMulAdd(pi16_med, n, Sub(r_hi, r_med));
   V r_lo = MulAdd(pi16_lo, n, Sub(r, r_med));
   r_lo = Sub(term, r_lo);
+  if constexpr (!kNativeFMA) {
+    // Fourth piece (48 bits at 2^-91). Reuse the one rounded product in both
+    // the subtraction and its error capture so (r, r_lo) stays an exact
+    // double-double of the reduction even when r is tiny near k*π/2.
+    const V tail_prod = Mul(n, Set(d, kPiDiv16Prec29[3]));
+    const V r_prev = r;
+    r = Sub(r_prev, tail_prod);
+    r_lo = Add(r_lo, Sub(Sub(r_prev, r), tail_prod));
+  }
 
   // Step 4: Polynomial approximation
   V r2 = Mul(r, r);
 
-  // Minimax polynomial for (sin(r)/r - 1)
-  // sin(r)/r = 1 - r²/3! + r⁴/5! - r⁶/7! + ...
-  // This polynomial computes the terms after 1
+  // Minimax polynomial for (sin(r)/r - 1)/r²  ==  (sin(r) - r)/r³
+  // The Taylor form sin(r)/r - 1 = -r²/3! + r⁴/5! - ... fixes the leading
+  // coefficient at -1/3! = -1/6 (higher terms are minimax-adjusted); the
+  // stripped r² factor is reapplied downstream via MulAdd(r2, ...).
   V sin_poly = Set(d, 0x1.71c97d22a73ddp-19);
   sin_poly = MulAdd(sin_poly, r2, Set(d, -0x1.a01a00ed01edep-13));
   sin_poly = MulAdd(sin_poly, r2, Set(d, 0x1.111111110e99dp-7));
   sin_poly = MulAdd(sin_poly, r2, Set(d, -0x1.5555555555555p-3));
 
   // Minimax polynomial for (cos(r) - 1)/r²
-  // cos(r) = 1 - r²/2! + r⁴/4! - r⁶/6! + ...
-  // This polynomial computes (cos(r) - 1)/r²
+  // From cos(r) = 1 - r²/2! + r⁴/4! - ..., the leading term is ≈ -1/2! = -1/2
+  // (minimax-adjusted, so not exactly -1/2).
   V cos_poly = Set(d, 0x1.9ffd7d9d749bcp-16);
   cos_poly = MulAdd(cos_poly, r2, Set(d, -0x1.6c16c075d73f8p-10));
   cos_poly = MulAdd(cos_poly, r2, Set(d, 0x1.555555554e8d6p-5));
@@ -192,7 +208,7 @@ NPSR_INTRIN V High(V x) {
   //
   // Where for small r (|r| < π/16):
   // cos(r) ≈ 1 + r²*cos_poly
-  // sin(r) ≈ r*(1 + sin_poly) ≈ r + r*sin_poly
+  // sin(r) ≈ r + r³*sin_poly
   //
   // SVML's efficient linear approximation:
   // sin(a+r) ≈ sin(a) + cos(a)*r + polynomial_corrections
@@ -201,7 +217,7 @@ NPSR_INTRIN V High(V x) {
   // This is mathematically equivalent but computationally more efficient:
   // - Uses first-order linear terms directly: Sh + Ch*R, Ch - R*Sh
   // - Applies higher-order polynomial corrections separately
-  // - Fewer multiplications and better numerical stability
+  // - Better accuracy near the result's zeros (dominant term stays leading)
   //
   // Implementation follows SVML structure:
   // sin(n*π/16 + r) = sin_table + cos_table*remainder (+ corrections)
@@ -210,13 +226,23 @@ NPSR_INTRIN V High(V x) {
   if constexpr (OP == Operation::kCos) {
     // Cosine reconstruction: cos_table - sin_table*remainder
     // Equivalent to: cos(a)*cos(r) - sin(a)*sin(r) but more efficient
-    V res_hi = NegMulAdd(r, sin_hi, cos_hi);  // cos_hi - r*sin_hi
+    V res_hi, r_sin_low;
+    if constexpr (kNativeFMA) {
+      res_hi = NegMulAdd(r, sin_hi, cos_hi);  // cos_hi - r*sin_hi
 
-    // This captures the precision lost in the main computation
-    V r_sin_hi = Sub(cos_hi, res_hi);  // Extract high part of multiplication
+      // This captures the precision lost in the main computation
+      V r_sin_hi = Sub(cos_hi, res_hi);  // Extract high part of multiplication
 
-    // Handles rounding errors and adds sin_low contribution
-    V r_sin_low = MulSub(r, sin_hi, r_sin_hi);  // Compute multiplication error
+      // Handles rounding errors via the FMA product-error idiom
+      r_sin_low = MulSub(r, sin_hi, r_sin_hi);  // Compute multiplication error
+    } else {
+      // Exact-by-construction head product replaces the FMA idiom
+      V r_sin, r_sin_rest;
+      SplitMul(r, sin_hi, r_sin, r_sin_rest);
+      res_hi = Sub(cos_hi, r_sin);
+      V r_sin_hi = Sub(cos_hi, res_hi);
+      r_sin_low = Add(Sub(r_sin, r_sin_hi), r_sin_rest);
+    }
     V sin_low_corr = MulAdd(r, sin_lo, r_sin_low);  // Add sin_low term
 
     // This is used to apply the low-precision remainder correction
@@ -245,13 +271,23 @@ NPSR_INTRIN V High(V x) {
   } else {
     // Sine reconstruction: sin_table + cos_table*remainder
     // Equivalent to: sin(a)*cos(r) + cos(a)*sin(r) but more efficient
-    V res_hi = MulAdd(r, cos_hi, sin_hi);  // sin_hi + r*cos_hi
+    V res_hi, r_cos_low;
+    if constexpr (kNativeFMA) {
+      res_hi = MulAdd(r, cos_hi, sin_hi);  // sin_hi + r*cos_hi
 
-    // This captures the precision lost in the main computation
-    V r_cos_hi = Sub(res_hi, sin_hi);  // Extract high part of multiplication
+      // This captures the precision lost in the main computation
+      V r_cos_hi = Sub(res_hi, sin_hi);  // Extract high part of multiplication
 
-    // Handles rounding errors and adds cos_low contribution
-    V r_cos_low = MulSub(r, cos_hi, r_cos_hi);  // Compute multiplication error
+      // Handles rounding errors via the FMA product-error idiom
+      r_cos_low = MulSub(r, cos_hi, r_cos_hi);  // Compute multiplication error
+    } else {
+      // Exact-by-construction head product replaces the FMA idiom
+      V r_cos, r_cos_rest;
+      SplitMul(r, cos_hi, r_cos, r_cos_rest);
+      res_hi = Add(sin_hi, r_cos);
+      V r_cos_hi = Sub(res_hi, sin_hi);
+      r_cos_low = Add(Sub(r_cos, r_cos_hi), r_cos_rest);
+    }
     V cos_low_corr = MulAdd(r, cos_lo, r_cos_low);  // Add cos_low term
 
     // Intermediate term for r_low correction: cos_table - sin_table*r
@@ -282,8 +318,11 @@ NPSR_INTRIN V High(V x) {
   // This unified approach works because:
   // - sin(x + π) = -sin(x)
   // - cos(x + π) = -cos(x)
+  // TODO(seiko2plus): x_sign_int and the Xor are dead code (always zero) and
+  // should be removed. The sign is bit 4 of n_biased alone; sin(-0.0) is
+  // handled in trig/inl.h under kSpecialCases.
   VU x_sign_int = ShiftLeft<63>(BitCast(du, x));
-  // XOR with quadrant info in n_biased
+  // Fold in the π-period parity (bit 4 of n_biased); x_sign_int is 0 (dead).
   VU combined = Xor(BitCast(du, n_biased), ShiftLeft<4>(x_sign_int));
   // Extract final sign
   VU sign = ShiftRight<4>(combined);
