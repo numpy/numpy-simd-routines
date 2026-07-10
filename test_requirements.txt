@@ -1,0 +1,9 @@
+# Deps for the numpy_sr test driver: builds the kernels (meson/ninja) and
+# dlopens + dispatches them (ctypes over numpy buffers).
+pytest>=7.0
+numpy>=1.22
+hypothesis>=6.0
+pytest-xdist>=3.0
+spin>=0.18
+meson>=1.3.0
+ninja>=1.10

@@ -1,0 +1,42 @@
+# Per-arch `spin build` + `spin test` on native hosted runners: a fast smoke
+# pass first, then the stress sweeps (MPFR-validated, marked `stress`).
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86-64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'  # project minimum
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libmpfr-dev
+          python -m pip install -r test_requirements.txt
+      - name: Build
+        run: spin build
+      - name: Smoke test
+        run: spin test -- -m "not stress" -q
+      - name: Stress test
+        run: spin test -- -m stress -q

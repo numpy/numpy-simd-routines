@@ -7,10 +7,9 @@ import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
-from dataclasses import dataclass
-
 
 # ANSI color codes for terminal output
 if sys.stdout.isatty():
@@ -38,7 +37,9 @@ else:
         DIM = ""
 
 
-def print_colored(text: str, color: str = "", icon: str = "", indent: int = 0) -> None:
+def print_colored(
+    text: str, color: str = "", icon: str = "", indent: int = 0
+) -> None:
     """Print text with color, icon, and indentation."""
     prefix = "  " * indent
     print(f"{prefix}{color}{icon}{text}{Colors.RESET}")
@@ -101,12 +102,18 @@ def sollya(sollya_file: Path, output_file: Path) -> ProcessResult:
         res.error = f"Path resolution error: {e}"
         return res
 
-    guard_name = str(relative_output).upper().translate(str.maketrans("/.\\-", "____"))
+    guard_name = (
+        str(relative_output).upper().translate(str.maketrans("/.\\-", "____"))
+    )
 
     # Create temp files and process
     with (
-        tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as temp_py,
-        tempfile.NamedTemporaryFile(mode="w", suffix=".sol", delete=False) as temp_sol,
+        tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False
+        ) as temp_py,
+        tempfile.NamedTemporaryFile(
+            mode="w", suffix=".sol", delete=False
+        ) as temp_sol,
     ):
         res.duration = time.time()
         try:
@@ -134,7 +141,7 @@ quit;
             print_divider()
 
             has_error = False
-            # Drain stdout as it is produced. Reading before wait() is required:
+            # Drain stdout live; reading before wait() is required:
             # with stdout=PIPE, wait() deadlocks if Sollya (verbosity=4) fills
             # the OS pipe buffer before exiting.
             for line in process.stdout:
@@ -150,9 +157,13 @@ quit;
                 has_error = has_error or got_error
 
                 color = (
-                    Colors.RED if got_error else Colors.BLUE if got_info else Colors.DIM
+                    Colors.RED
+                    if got_error
+                    else Colors.BLUE
+                    if got_info
+                    else Colors.DIM
                 )
-                icon = "│✗" if got_error else "│ℹ" if got_info else "│"
+                icon = "│✗" if got_error else "│ℹ" if got_info else "│"  # noqa: RUF001
                 print_colored(f"{icon} {line.rstrip()}", color, indent=1)
 
             process.wait()
@@ -191,7 +202,9 @@ def find_sollya_files(root_dir: Path) -> list[tuple[Path, Path]]:
 
 def process_files(files: list[tuple[Path, Path]]) -> list[ProcessResult]:
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-        futures = {executor.submit(sollya, sf, of): (sf, of) for sf, of in files}
+        futures = {
+            executor.submit(sollya, sf, of): (sf, of) for sf, of in files
+        }
         results = []
 
         for future in as_completed(futures):
@@ -202,7 +215,9 @@ def process_files(files: list[tuple[Path, Path]]) -> list[ProcessResult]:
             color = Colors.GREEN if result.success else Colors.RED
             icon = "✓ " if result.success else "✗ "
             status = "Completed" if result.success else "Failed"
-            file_name = result.output_file if result.success else result.sollya_file
+            file_name = (
+                result.output_file if result.success else result.sollya_file
+            )
             if not result.success:
                 result.output_file.unlink(missing_ok=True)
             duration = format_duration(result.duration)
@@ -223,7 +238,9 @@ def main(*, force: bool = False) -> None:
     # Check Sollya availability
     if not check_sollya_available():
         print_colored("✗ Error: Sollya not found in PATH", Colors.RED)
-        print_colored("Please install Sollya: https://www.sollya.org/", indent=1)
+        print_colored(
+            "Please install Sollya: https://www.sollya.org/", indent=1
+        )
         sys.exit(1)
 
     # Find files
@@ -248,7 +265,8 @@ def main(*, force: bool = False) -> None:
     # Show skipped files
     if skipped:
         print_colored(
-            f"Skipping {len(skipped)} existing files (use -f to regenerate)", Colors.DIM
+            f"Skipping {len(skipped)} existing files (use -f to regenerate)",
+            Colors.DIM,
         )
         for _, output_file in skipped:
             print_colored(f"○ {output_file}", Colors.DIM, indent=1)
@@ -281,7 +299,9 @@ def main(*, force: bool = False) -> None:
         total_sequential_time = sum(r.duration for r in results)
         speedup = total_sequential_time / total_duration
         avg_time = format_duration(total_sequential_time / len(results))
-        print_colored(f"⚡ Speedup: {speedup:.1f}x (avg {avg_time}/file)", indent=1)
+        print_colored(
+            f"⚡ Speedup: {speedup:.1f}x (avg {avg_time}/file)", indent=1
+        )
 
     # Show errors
     if errors := [r for r in results if not r.success]:
@@ -295,7 +315,7 @@ def main(*, force: bool = False) -> None:
 def cli() -> None:
     """Command line interface."""
     parser = argparse.ArgumentParser(
-        description="Generate C++ headers/Python templates from Sollya scripts.",
+        description="Generate C++ headers/Python templates from Sollya.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
