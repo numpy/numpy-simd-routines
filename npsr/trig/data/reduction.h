@@ -262,7 +262,7 @@ template <> inline constexpr uint32_t kLargeReductionTable<float>[] = {
 2795223067u, 1817359143u, 2289174591u, 
 1295478838u, 3634718287u, 283381887u, 
 2590957677u, 2974469278u, 566763775u, 
-};;
+};
 
 template <> inline constexpr uint64_t kLargeReductionTable<double>[] = {
 0ull, 0ull, 0ull, 
@@ -2313,7 +2313,7 @@ template <> inline constexpr uint64_t kLargeReductionTable<double>[] = {
 2862820329136421693ull, 520719405400910443ull, 18113390975381211222ull, 
 5725640658272843386ull, 1041438810801820887ull, 17780037877052870828ull, 
 11451281316545686772ull, 2082877621603641775ull, 17113331680396190040ull, 
-};;
+};
 
 } // namespace npsr::trig::data
 

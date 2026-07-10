@@ -1,0 +1,16 @@
+# Drives `spin` (https://github.com/scientific-python/spin) to run the Sollya
+# code generator via `spin sollya`.
+
+[project]
+name = "numpy_sr"
+version = "1.0.0.dev0"
+description = "NumPy SIMD Routines"
+requires-python = ">=3.12"
+
+[tool.spin]
+package = "numpy_sr"
+
+[tool.spin.commands]
+"Codegen" = [
+  ".spin/cmds.py:sollya",
+]

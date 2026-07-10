@@ -1,0 +1,24 @@
+# Temporary #
+#############
+.cache
+.direnv
+
+# Compiled source #
+###################
+*.a
+*.dll
+*.exe
+*.o
+*.o.d
+*.py[ocd]
+*.so
+*.mod
+
+# Logs #
+########
+*.log
+
+# Patches #
+###########
+*.patch
+*.diff

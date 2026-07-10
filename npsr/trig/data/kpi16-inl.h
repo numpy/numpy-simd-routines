@@ -35,7 +35,7 @@ inline constexpr auto kKPi16Table = MakeLut<double>(
 }
 
 );
-inline HWY_ATTR void _dummy_supress_unused_target(){}
+inline HWY_ATTR void _dummy_suppress_unused_target(){}
 } // namespace npsr::HWY_NAMESPACE::trig
 HWY_AFTER_NAMESPACE();
 #endif // NPSR_TRIG_DATA_KPI16_INL_H
